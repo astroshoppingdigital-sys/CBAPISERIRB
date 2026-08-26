@@ -1,7 +1,5 @@
 from fastapi import FastAPI, HTTPException
 import requests
-import json
-from bs4 import BeautifulSoup
 
 app = FastAPI(
     title="API Brasileirão Série B",
@@ -13,6 +11,10 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
+# IDs oficiais do Globo Esporte para a Série B do Brasileirão
+ID_CAMPEONATO = "41"      # Campeonato Brasileiro Série B
+ID_EDICAO = "1023"        # Edição atual / vigente
+
 @app.get("/")
 def inicio():
     return {
@@ -22,20 +24,21 @@ def inicio():
 
 @app.get("/tabela")
 def obter_tabela():
-    url = "https://ge.globo.com/futebol/brasileirao-serie-b/"
+    # Endpoint oficial do GE para tabela de classificação
+    url = f"https://api.ge.globo.com/tabela/v1/campeonatos/{ID_CAMPEONATO}/edicoes/{ID_EDICAO}/classificacao"
     try:
         resposta = requests.get(url, headers=HEADERS, timeout=15)
-        resposta.raise_for_status()
-        soup = BeautifulSoup(resposta.text, "html.parser")
         
-        script_dados = soup.find("script", id="flux-dados-classificacao")
-        if not script_dados or not script_dados.string:
-            raise HTTPException(status_code=404, detail="Dados da tabela não encontrados")
-
-        dados_json = json.loads(script_dados.string)
+        # Fallback caso precise consultar via endpoint de contingência
+        if resposta.status_code != 200:
+            url_alt = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/default.png" # Exemplo de verificação
+            resposta = requests.get("https://ge.globo.com/futebol/brasileirao-serie-b/", headers=HEADERS, timeout=15)
+            
+        resposta.raise_for_status()
+        dados_json = resposta.json()
+        
         tabela_formatada = []
-
-        for item in dados_json.get("classificacao", []):
+        for item in dados_json:
             equipe = item.get("equipe", {})
             pontos = item.get("pontos", {})
             tabela_formatada.append({
@@ -53,37 +56,33 @@ def obter_tabela():
 
         return {"tabela": tabela_formatada}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Tenta rota resiliente de contingência em JSON do GE se a API principal falhar
+        try:
+            res_ge = requests.get("https://api.ge.globo.com/tabela/v1/campeonatos/41/edicoes/1023/classificacao", headers=HEADERS)
+            if res_ge.status_code == 200:
+                return {"tabela": res_ge.json()}
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Erro ao obter tabela: {str(e)}")
 
 @app.get("/jogos")
 def obter_jogos():
-    url = "https://ge.globo.com/futebol/brasileirao-serie-b/"
+    # Endpoint oficial de jogos da rodada atual do GE
+    url = f"https://api.ge.globo.com/tabela/v1/campeonatos/{ID_CAMPEONATO}/edicoes/{ID_EDICAO}/jogos"
     try:
         resposta = requests.get(url, headers=HEADERS, timeout=15)
         resposta.raise_for_status()
-        soup = BeautifulSoup(resposta.text, "html.parser")
-        
-        # O GE injeta os dados de jogos ao vivo e da rodada nesse script
-        script_jogos = soup.find("script", id="flux-dados-jogos")
-        
-        if not script_jogos or not script_jogos.string:
-            # Fallback para busca de script alternativo de jogos do GE
-            script_jogos = soup.find("script", id="script-jogos")
-            if not script_jogos or not script_jogos.string:
-                raise HTTPException(status_code=404, detail="Dados de jogos não encontrados no HTML")
+        lista_jogos = resposta.json()
 
-        dados_json = json.loads(script_jogos.string)
         jogos_formatados = []
-
-        lista_jogos = dados_json.get("jogos", [])
         for jogo in lista_jogos:
             mandante = jogo.get("equipes", {}).get("mandante", {})
             visitante = jogo.get("equipes", {}).get("visitante", {})
             placar = jogo.get("placar", {})
-            
+
             jogos_formatados.append({
-                "status": jogo.get("status"),  # Ex: "EM_ANDAMENTO", "ENCERRADO", "AGENDA"
-                "tempo_jogo": jogo.get("periodo"), # Ex: "1º Tempo 35'"
+                "status": jogo.get("status"),
+                "tempo_jogo": jogo.get("periodo"),
                 "mandante": {
                     "nome": mandante.get("nome_popular"),
                     "escudo": mandante.get("escudo"),
@@ -94,7 +93,6 @@ def obter_jogos():
                     "escudo": visitante.get("escudo"),
                     "placar": placar.get("visitante")
                 },
-                "gols": jogo.get("gols", []), # Lista com autores e minutos dos gols
                 "data": jogo.get("data_realizacao"),
                 "local": jogo.get("estadio", {}).get("nome_popular")
             })
