@@ -11,8 +11,8 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-# URL oficial com os dados da tabela da Série B no Globo Esporte
-URL_GE_TABELA = "https://api.globoesporte.globo.com/tabela/d1a66e5d-114d-4e90-a931-158913988636/fase/fase-unica-serie-b-2024/classificacao/"
+# Endpoint público direto de dados de futebol da Globo
+URL_GE_FUTEBOL = "https://ge.globo.com/futebol/brasileirao-serie-b/"
 
 @app.get("/")
 def inicio():
@@ -23,13 +23,22 @@ def inicio():
 
 @app.get("/tabela")
 def obter_tabela():
+    # Faz chamada para a API dinâmica de classificação do GE
+    url_api = "https://api.globoesporte.globo.com/tabela/fase/fase-unica-serie-b/classificacao"
     try:
-        resposta = requests.get(URL_GE_TABELA, headers=HEADERS, timeout=15)
-        resposta.raise_for_status()
-        dados_json = resposta.json()
+        res = requests.get(url_api, headers=HEADERS, timeout=15)
+        if res.status_code != 200:
+            # Fallback direto caso a estrutura exija o parâmetro da edição atual
+            res = requests.get("https://a.ge.globo.com/futebol/brasileirao-serie-b/classificacao.json", headers=HEADERS, timeout=15)
+            
+        res.raise_for_status()
+        dados = res.json()
 
         tabela_formatada = []
-        for item in dados_json:
+        # Normaliza o formato recebido
+        lista_classificacao = dados if isinstance(dados, list) else dados.get("classificacao", [])
+        
+        for item in lista_classificacao:
             equipe = item.get("equipe", {})
             pontos = item.get("pontos", {})
             tabela_formatada.append({
@@ -51,37 +60,36 @@ def obter_tabela():
 
 @app.get("/jogos")
 def obter_jogos():
+    url_api = "https://api.globoesporte.globo.com/tabela/fase/fase-unica-serie-b/jogos"
     try:
-        # Busca a rodada atual a partir dos dados da tabela
-        resposta = requests.get(URL_GE_TABELA, headers=HEADERS, timeout=15)
-        resposta.raise_for_status()
-        dados_json = resposta.json()
-        
-        # Pega os jogos da rodada
-        jogos_formatados = []
-        if dados_json and len(dados_json) > 0:
-            rodada_jogos = dados_json[0].get("jogos", [])
-            for jogo in rodada_jogos:
-                mandante = jogo.get("equipes", {}).get("mandante", {})
-                visitante = jogo.get("equipes", {}).get("visitante", {})
-                placar = jogo.get("placar", {})
+        res = requests.get(url_api, headers=HEADERS, timeout=15)
+        res.raise_for_status()
+        dados = res.json()
 
-                jogos_formatados.append({
-                    "status": jogo.get("status"),
-                    "tempo_jogo": jogo.get("periodo"),
-                    "mandante": {
-                        "nome": mandante.get("nome_popular"),
-                        "escudo": mandante.get("escudo"),
-                        "placar": placar.get("mandante")
-                    },
-                    "visitante": {
-                        "nome": visitante.get("nome_popular"),
-                        "escudo": visitante.get("escudo"),
-                        "placar": placar.get("visitante")
-                    },
-                    "data": jogo.get("data_realizacao"),
-                    "local": jogo.get("estadio", {}).get("nome_popular")
-                })
+        jogos_formatados = []
+        lista_jogos = dados if isinstance(dados, list) else dados.get("jogos", [])
+
+        for jogo in lista_jogos:
+            mandante = jogo.get("equipes", {}).get("mandante", {})
+            visitante = jogo.get("equipes", {}).get("visitante", {})
+            placar = jogo.get("placar", {})
+
+            jogos_formatados.append({
+                "status": jogo.get("status"),
+                "tempo_jogo": jogo.get("periodo"),
+                "mandante": {
+                    "nome": mandante.get("nome_popular"),
+                    "escudo": mandante.get("escudo"),
+                    "placar": placar.get("mandante")
+                },
+                "visitante": {
+                    "nome": visitante.get("nome_popular"),
+                    "escudo": visitante.get("escudo"),
+                    "placar": placar.get("visitante")
+                },
+                "data": jogo.get("data_realizacao"),
+                "local": jogo.get("estadio", {}).get("nome_popular")
+            })
 
         return {"rodada_atual": jogos_formatados}
     except Exception as e:
