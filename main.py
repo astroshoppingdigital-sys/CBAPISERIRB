@@ -3,94 +3,91 @@ import requests
 
 app = FastAPI(
     title="API Brasileirão Série B",
-    description="API com tabela de classificação e jogos em tempo real",
-    version="2.0.0"
+    description="API de classificação e jogos via ESPN",
+    version="3.0.0"
 )
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-# Endpoint público direto de dados de futebol da Globo
-URL_GE_FUTEBOL = "https://ge.globo.com/futebol/brasileirao-serie-b/"
+# Endpoint público e gratuito da ESPN para a Série B do Brasil
+URL_ESPN_TABELA = "https://site.api.espn.com/apis/v2/sports/soccer/bra.2/standings"
+URL_ESPN_JOGOS = "https://site.api.espn.com/apis/site/v2/sports/soccer/bra.2/scoreboard"
 
 @app.get("/")
 def inicio():
     return {
         "status": "online",
+        "provedor": "ESPN",
         "endpoints": ["/tabela", "/jogos"]
     }
 
 @app.get("/tabela")
 def obter_tabela():
-    # Faz chamada para a API dinâmica de classificação do GE
-    url_api = "https://api.globoesporte.globo.com/tabela/fase/fase-unica-serie-b/classificacao"
     try:
-        res = requests.get(url_api, headers=HEADERS, timeout=15)
-        if res.status_code != 200:
-            # Fallback direto caso a estrutura exija o parâmetro da edição atual
-            res = requests.get("https://a.ge.globo.com/futebol/brasileirao-serie-b/classificacao.json", headers=HEADERS, timeout=15)
-            
-        res.raise_for_status()
-        dados = res.json()
+        resposta = requests.get(URL_ESPN_TABELA, headers=HEADERS, timeout=15)
+        resposta.raise_for_status()
+        dados = resposta.json()
 
         tabela_formatada = []
-        # Normaliza o formato recebido
-        lista_classificacao = dados if isinstance(dados, list) else dados.get("classificacao", [])
-        
-        for item in lista_classificacao:
-            equipe = item.get("equipe", {})
-            pontos = item.get("pontos", {})
+        entries = dados.get("children", [{}])[0].get("standings", {}).get("entries", [])
+
+        for idx, entry in enumerate(entries, 1):
+            team = entry.get("team", {})
+            stats = {stat.get("name"): stat.get("value") for stat in entry.get("stats", [])}
+
             tabela_formatada.append({
-                "posicao": item.get("posicao"),
-                "time": equipe.get("nome_popular"),
-                "sigla": equipe.get("sigla"),
-                "escudo": equipe.get("escudo"),
-                "pontos": pontos.get("pontos"),
-                "jogos": pontos.get("jogos"),
-                "vitorias": pontos.get("vitorias"),
-                "empates": pontos.get("empates"),
-                "derrotas": pontos.get("derrotas"),
-                "saldo_gols": pontos.get("saldo_gols")
+                "posicao": idx,
+                "time": team.get("displayName"),
+                "sigla": team.get("abbreviation"),
+                "escudo": team.get("logos", [{}])[0].get("href") if team.get("logos") else None,
+                "pontos": int(stats.get("points", 0)),
+                "jogos": int(stats.get("gamesPlayed", 0)),
+                "vitorias": int(stats.get("wins", 0)),
+                "empates": int(stats.get("ties", 0)),
+                "derrotas": int(stats.get("losses", 0)),
+                "saldo_gols": int(stats.get("pointDifferential", 0))
             })
 
         return {"tabela": tabela_formatada}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao obter tabela: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar tabela da ESPN: {str(e)}")
 
 @app.get("/jogos")
 def obter_jogos():
-    url_api = "https://api.globoesporte.globo.com/tabela/fase/fase-unica-serie-b/jogos"
     try:
-        res = requests.get(url_api, headers=HEADERS, timeout=15)
-        res.raise_for_status()
-        dados = res.json()
+        resposta = requests.get(URL_ESPN_JOGOS, headers=HEADERS, timeout=15)
+        resposta.raise_for_status()
+        dados = resposta.json()
 
         jogos_formatados = []
-        lista_jogos = dados if isinstance(dados, list) else dados.get("jogos", [])
+        events = dados.get("events", [])
 
-        for jogo in lista_jogos:
-            mandante = jogo.get("equipes", {}).get("mandante", {})
-            visitante = jogo.get("equipes", {}).get("visitante", {})
-            placar = jogo.get("placar", {})
+        for event in events:
+            competition = event.get("competitions", [{}])[0]
+            competitors = competition.get("competitors", [])
+
+            mandante = next((c for c in competitors if c.get("homeAway") == "home"), {})
+            visitante = next((c for c in competitors if c.get("homeAway") == "away"), {})
 
             jogos_formatados.append({
-                "status": jogo.get("status"),
-                "tempo_jogo": jogo.get("periodo"),
+                "status": event.get("status", {}).get("type", {}).get("description"),
+                "tempo_jogo": event.get("status", {}).get("displayClock"),
                 "mandante": {
-                    "nome": mandante.get("nome_popular"),
-                    "escudo": mandante.get("escudo"),
-                    "placar": placar.get("mandante")
+                    "nome": mandante.get("team", {}).get("displayName"),
+                    "escudo": mandante.get("team", {}).get("logo"),
+                    "placar": mandante.get("score")
                 },
                 "visitante": {
-                    "nome": visitante.get("nome_popular"),
-                    "escudo": visitante.get("escudo"),
-                    "placar": placar.get("visitante")
+                    "nome": visitante.get("team", {}).get("displayName"),
+                    "escudo": visitante.get("team", {}).get("logo"),
+                    "placar": visitante.get("score")
                 },
-                "data": jogo.get("data_realizacao"),
-                "local": jogo.get("estadio", {}).get("nome_popular")
+                "data": event.get("date"),
+                "local": competition.get("venue", {}).get("fullName")
             })
 
         return {"rodada_atual": jogos_formatados}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos da ESPN: {str(e)}")
