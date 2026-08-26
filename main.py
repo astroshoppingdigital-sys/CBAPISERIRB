@@ -3,35 +3,45 @@ import requests
 
 app = FastAPI(
     title="API Brasileirão Série B",
-    description="API de classificação e jogos via ESPN",
-    version="3.0.0"
+    description="API com dados da Série B",
+    version="4.0.0"
 )
 
+# Headers mais completos simulando um navegador real
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
 }
-
-# Endpoint público e gratuito da ESPN para a Série B do Brasil
-URL_ESPN_TABELA = "https://site.api.espn.com/apis/v2/sports/soccer/bra.2/standings"
-URL_ESPN_JOGOS = "https://site.api.espn.com/apis/site/v2/sports/soccer/bra.2/scoreboard"
 
 @app.get("/")
 def inicio():
     return {
         "status": "online",
-        "provedor": "ESPN",
         "endpoints": ["/tabela", "/jogos"]
     }
 
 @app.get("/tabela")
 def obter_tabela():
+    # Rota alternativa aberta sem bloqueio de IP de datacenter
+    url = "https://site.web.api.espn.com/apis/v2/sports/soccer/bra.2/standings"
     try:
-        resposta = requests.get(URL_ESPN_TABELA, headers=HEADERS, timeout=15)
+        resposta = requests.get(url, headers=HEADERS, timeout=15)
+        
+        # Fallback de requisição caso retorne status de bloqueio
+        if resposta.status_code == 403:
+            url_alt = "https://cdn.espn.com/core/soccer/standings?league=bra.2&xhr=1"
+            resposta = requests.get(url_alt, headers=HEADERS, timeout=15)
+
         resposta.raise_for_status()
         dados = resposta.json()
 
         tabela_formatada = []
         entries = dados.get("children", [{}])[0].get("standings", {}).get("entries", [])
+        
+        # Trata estrutura caso venha do endpoint alternativo
+        if not entries and "content" in dados:
+            entries = dados.get("content", {}).get("standings", {}).get("groups", [{}])[0].get("standings", {}).get("entries", [])
 
         for idx, entry in enumerate(entries, 1):
             team = entry.get("team", {})
@@ -52,12 +62,13 @@ def obter_tabela():
 
         return {"tabela": tabela_formatada}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar tabela da ESPN: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter tabela: {str(e)}")
 
 @app.get("/jogos")
 def obter_jogos():
+    url = "https://site.web.api.espn.com/apis/site/v2/sports/soccer/bra.2/scoreboard"
     try:
-        resposta = requests.get(URL_ESPN_JOGOS, headers=HEADERS, timeout=15)
+        resposta = requests.get(url, headers=HEADERS, timeout=15)
         resposta.raise_for_status()
         dados = resposta.json()
 
@@ -90,4 +101,4 @@ def obter_jogos():
 
         return {"rodada_atual": jogos_formatados}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos da ESPN: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos: {str(e)}")
