@@ -4,7 +4,7 @@ import requests
 app = FastAPI(
     title="API Brasileirão Série B",
     description="API com dados da Série B",
-    version="4.2.0"
+    version="5.0.0"
 )
 
 HEADERS = {
@@ -17,7 +17,7 @@ HEADERS = {
 def inicio():
     return {
         "status": "online",
-        "endpoints": ["/tabela", "/jogos", "/artilheiros"]
+        "endpoints": ["/tabela", "/jogos"]
     }
 
 @app.get("/tabela")
@@ -25,14 +25,17 @@ def obter_tabela():
     url = "https://site.web.api.espn.com/apis/v2/sports/soccer/bra.2/standings"
     try:
         resposta = requests.get(url, headers=HEADERS, timeout=15)
+        
         if resposta.status_code == 403:
             url_alt = "https://cdn.espn.com/core/soccer/standings?league=bra.2&xhr=1"
             resposta = requests.get(url_alt, headers=HEADERS, timeout=15)
+
         resposta.raise_for_status()
         dados = resposta.json()
 
         tabela_formatada = []
         entries = dados.get("children", [{}])[0].get("standings", {}).get("entries", [])
+        
         if not entries and "content" in dados:
             entries = dados.get("content", {}).get("standings", {}).get("groups", [{}])[0].get("standings", {}).get("entries", [])
 
@@ -95,48 +98,3 @@ def obter_jogos():
         return {"rodada_atual": jogos_formatados}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos: {str(e)}")
-
-@app.get("/artilheiros")
-def obter_artilheiros():
-    url = "https://site.web.api.espn.com/apis/site/v2/sports/soccer/bra.2/scoreboard"
-    try:
-        resposta = requests.get(url, headers=HEADERS, timeout=15)
-        resposta.raise_for_status()
-        dados = resposta.json()
-
-        artilheiros_dict = {}
-        events = dados.get("events", [])
-
-        for event in events:
-            competition = event.get("competitions", [{}])[0]
-            details = competition.get("details", []) # Detalhes de lances, gols e cartões da partida
-            
-            for detail in details:
-                # Verifica se o lance foi um gol
-                tipo_acao = detail.get("type", {}).get("text", "").lower()
-                if "gol" in tipo_acao or detail.get("scoringPlay", False):
-                    atleta = detail.get("athlete", {})
-                    nome_jogador = atleta.get("displayName")
-                    time_jogador = detail.get("team", {}).get("displayName")
-                    
-                    if nome_jogador:
-                        if nome_jogador not in artilheiros_dict:
-                            artilheiros_dict[nome_jogador] = {
-                                "jogador": nome_jogador,
-                                "time": time_jogador,
-                                "gols": 0,
-                                "foto": atleta.get("headshot")
-                            }
-                        artilheiros_dict[nome_jogador]["gols"] += 1
-
-        # Transforma o dicionário em lista e ordena do que tem mais gols para o menor
-        lista_artilheiros = list(artilheiros_dict.values())
-        lista_artilheiros.sort(key=lambda x: x["gols"], reverse=True)
-
-        # Adiciona a posição sequencial
-        for idx, art in enumerate(lista_artilheiros, 1):
-            art["posicao"] = idx
-
-        return {"artilheiros": lista_artilheiros}
-    except Exception as e:
-        return {"artilheiros": [], "erro": str(e)}
