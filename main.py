@@ -98,11 +98,10 @@ def obter_jogos():
 
         return {"rodada_atual": jogos_formatados}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f500, detail=f"Erro ao buscar jogos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos: {str(e)}")
 
 @app.get("/artilheiros")
 def obter_artilheiros():
-    # Endpoint oficial de estatísticas/líderes da Série B na ESPN
     url = "https://site.web.api.espn.com/apis/v2/sports/soccer/bra.2/statistics"
     try:
         resposta = requests.get(url, headers=HEADERS, timeout=15)
@@ -111,7 +110,6 @@ def obter_artilheiros():
 
         artilheiros_formatados = []
         
-        # Navega na estrutura da API para extrair os líderes de gols
         categories = dados.get("categories", [])
         for cat in categories:
             if cat.get("name") == "gols" or "goal" in cat.get("name", "").lower():
@@ -131,5 +129,4 @@ def obter_artilheiros():
 
         return {"artilheiros": artilheiros_formatados}
     except Exception as e:
-        # Fallback caso a rota específica mude, retornando lista vazia controlada
         return {"artilheiros": [], "erro": str(e)}
