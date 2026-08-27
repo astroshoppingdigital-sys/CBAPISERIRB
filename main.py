@@ -18,17 +18,15 @@ HEADERS = {
 def inicio():
     return {
         "status": "online",
-        "endpoints": ["/tabela", "/jogos"]
+        "endpoints": ["/tabela", "/jogos", "/artilheiros"]
     }
 
 @app.get("/tabela")
 def obter_tabela():
-    # Rota alternativa aberta sem bloqueio de IP de datacenter
     url = "https://site.web.api.espn.com/apis/v2/sports/soccer/bra.2/standings"
     try:
         resposta = requests.get(url, headers=HEADERS, timeout=15)
         
-        # Fallback de requisição caso retorne status de bloqueio
         if resposta.status_code == 403:
             url_alt = "https://cdn.espn.com/core/soccer/standings?league=bra.2&xhr=1"
             resposta = requests.get(url_alt, headers=HEADERS, timeout=15)
@@ -39,7 +37,6 @@ def obter_tabela():
         tabela_formatada = []
         entries = dados.get("children", [{}])[0].get("standings", {}).get("entries", [])
         
-        # Trata estrutura caso venha do endpoint alternativo
         if not entries and "content" in dados:
             entries = dados.get("content", {}).get("standings", {}).get("groups", [{}])[0].get("standings", {}).get("entries", [])
 
@@ -101,4 +98,38 @@ def obter_jogos():
 
         return {"rodada_atual": jogos_formatados}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f500, detail=f"Erro ao buscar jogos: {str(e)}")
+
+@app.get("/artilheiros")
+def obter_artilheiros():
+    # Endpoint oficial de estatísticas/líderes da Série B na ESPN
+    url = "https://site.web.api.espn.com/apis/v2/sports/soccer/bra.2/statistics"
+    try:
+        resposta = requests.get(url, headers=HEADERS, timeout=15)
+        resposta.raise_for_status()
+        dados = resposta.json()
+
+        artilheiros_formatados = []
+        
+        # Navega na estrutura da API para extrair os líderes de gols
+        categories = dados.get("categories", [])
+        for cat in categories:
+            if cat.get("name") == "gols" or "goal" in cat.get("name", "").lower():
+                leaders = cat.get("leaders", [])
+                for idx, leader in enumerate(leaders, 1):
+                    athlete = leader.get("athlete", {})
+                    team = leader.get("team", {})
+                    
+                    artilheiros_formatados.append({
+                        "posicao": idx,
+                        "jogador": athlete.get("displayName"),
+                        "foto": athlete.get("headshot", {}).get("href"),
+                        "gols": int(leader.get("value", 0)),
+                        "time": team.get("displayName"),
+                        "escudo_time": team.get("logos", [{}])[0].get("href") if team.get("logos") else team.get("logo")
+                    })
+
+        return {"artilheiros": artilheiros_formatados}
+    except Exception as e:
+        # Fallback caso a rota específica mude, retornando lista vazia controlada
+        return {"artilheiros": [], "erro": str(e)}
