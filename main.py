@@ -4,7 +4,7 @@ import requests
 app = FastAPI(
     title="API Brasileirão Série B",
     description="API com dados da Série B",
-    version="4.0.0"
+    version="3.0.0"
 )
 
 # Headers mais completos simulando um navegador real
@@ -18,7 +18,7 @@ HEADERS = {
 def inicio():
     return {
         "status": "online",
-        "endpoints": ["/tabela", "/jogos", "/artilheiros"]
+        "endpoints": ["/tabela", "/jogos"]
     }
 
 @app.get("/tabela")
@@ -99,34 +99,3 @@ def obter_jogos():
         return {"rodada_atual": jogos_formatados}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao buscar jogos: {str(e)}")
-
-@app.get("/artilheiros")
-def obter_artilheiros():
-    url = "https://site.web.api.espn.com/apis/v2/sports/soccer/bra.2/statistics"
-    try:
-        resposta = requests.get(url, headers=HEADERS, timeout=15)
-        resposta.raise_for_status()
-        dados = resposta.json()
-
-        artilheiros_formatados = []
-        
-        categories = dados.get("categories", [])
-        for cat in categories:
-            if cat.get("name") == "gols" or "goal" in cat.get("name", "").lower():
-                leaders = cat.get("leaders", [])
-                for idx, leader in enumerate(leaders, 1):
-                    athlete = leader.get("athlete", {})
-                    team = leader.get("team", {})
-                    
-                    artilheiros_formatados.append({
-                        "posicao": idx,
-                        "jogador": athlete.get("displayName"),
-                        "foto": athlete.get("headshot", {}).get("href"),
-                        "gols": int(leader.get("value", 0)),
-                        "time": team.get("displayName"),
-                        "escudo_time": team.get("logos", [{}])[0].get("href") if team.get("logos") else team.get("logo")
-                    })
-
-        return {"artilheiros": artilheiros_formatados}
-    except Exception as e:
-        return {"artilheiros": [], "erro": str(e)}
