@@ -1,65 +1,3 @@
-from fastapi import FastAPI, HTTPException
-import requests
-
-app = FastAPI(
-    title="API Brasileirão Série B",
-    description="API com dados da Série B",
-    version="5.0.0"
-)
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
-}
-
-@app.get("/")
-def inicio():
-    return {
-        "status": "online",
-        "endpoints": ["/tabela", "/jogos"]
-    }
-
-@app.get("/tabela")
-def obter_tabela():
-    url = "https://site.web.api.espn.com/apis/v2/sports/soccer/bra.2/standings"
-    try:
-        resposta = requests.get(url, headers=HEADERS, timeout=15)
-        
-        if resposta.status_code == 403:
-            url_alt = "https://cdn.espn.com/core/soccer/standings?league=bra.2&xhr=1"
-            resposta = requests.get(url_alt, headers=HEADERS, timeout=15)
-
-        resposta.raise_for_status()
-        dados = resposta.json()
-
-        tabela_formatada = []
-        entries = dados.get("children", [{}])[0].get("standings", {}).get("entries", [])
-        
-        if not entries and "content" in dados:
-            entries = dados.get("content", {}).get("standings", {}).get("groups", [{}])[0].get("standings", {}).get("entries", [])
-
-        for idx, entry in enumerate(entries, 1):
-            team = entry.get("team", {})
-            stats = {stat.get("name"): stat.get("value") for stat in entry.get("stats", [])}
-
-            tabela_formatada.append({
-                "posicao": idx,
-                "time": team.get("displayName"),
-                "sigla": team.get("abbreviation"),
-                "escudo": team.get("logos", [{}])[0].get("href") if team.get("logos") else None,
-                "pontos": int(stats.get("points", 0)),
-                "jogos": int(stats.get("gamesPlayed", 0)),
-                "vitorias": int(stats.get("wins", 0)),
-                "empates": int(stats.get("ties", 0)),
-                "derrotas": int(stats.get("losses", 0)),
-                "saldo_gols": int(stats.get("pointDifferential", 0))
-            })
-
-        return {"tabela": tabela_formatada}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao obter tabela: {str(e)}")
-
 @app.get("/jogos")
 def obter_jogos():
     url = "https://site.web.api.espn.com/apis/site/v2/sports/soccer/bra.2/scoreboard"
@@ -78,9 +16,15 @@ def obter_jogos():
             mandante = next((c for c in competitors if c.get("homeAway") == "home"), {})
             visitante = next((c for c in competitors if c.get("homeAway") == "away"), {})
 
+            status_obj = event.get("status", {})
+            status_type = status_obj.get("type", {})
+
             jogos_formatados.append({
-                "status": event.get("status", {}).get("type", {}).get("description"),
-                "tempo_jogo": event.get("status", {}).get("displayClock"),
+                "status": status_type.get("description"),
+                "estado": status_type.get("state"),          # "pre" (pré-jogo), "in" (em andamento), "post" (fim de jogo)
+                "concluido": status_type.get("completed"),   # True se acabou de fato, False caso contrário
+                "tempo_jogo": status_obj.get("displayClock"),
+                "periodo": status_obj.get("period"),         # 1 para 1º tempo, 2 para 2º tempo, etc.
                 "mandante": {
                     "nome": mandante.get("team", {}).get("displayName"),
                     "escudo": mandante.get("team", {}).get("logo"),
