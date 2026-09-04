@@ -1,3 +1,4 @@
+
 @app.get("/jogos")
 def obter_jogos():
     url = "https://site.web.api.espn.com/apis/site/v2/sports/soccer/bra.2/scoreboard"
@@ -19,10 +20,25 @@ def obter_jogos():
             status_obj = event.get("status", {})
             status_type = status_obj.get("type", {})
 
+            # Tratativa blindada de estado para evitar encerramento falso
+            state = status_type.get("state") # "pre", "in", "post"
+            completed = status_type.get("completed", False)
+            description = status_type.get("description", "")
+
+            if state == "post" or completed:
+                status_real = "Encerrado"
+            elif state == "in":
+                status_real = "Ao Vivo"
+            elif state == "pre":
+                status_real = "Agendado"
+            else:
+                status_real = description or "Aguardando"
+
             jogos_formatados.append({
-                "status": status_type.get("description"),
-                "estado": status_type.get("state"),          # "pre" (pré-jogo), "in" (em andamento), "post" (fim de jogo)
-                "concluido": status_type.get("completed"),   # True se acabou de fato, False caso contrário
+                "status": status_real,
+                "status_original": description,
+                "estado": state,          # "pre", "in", "post"
+                "concluido": completed,   # True se acabou de fato, False caso contrário
                 "tempo_jogo": status_obj.get("displayClock"),
                 "periodo": status_obj.get("period"),         # 1 para 1º tempo, 2 para 2º tempo, etc.
                 "mandante": {
