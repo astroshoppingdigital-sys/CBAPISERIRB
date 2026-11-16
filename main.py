@@ -1,17 +1,28 @@
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# Libera o acesso para o seu painel no Google AI Studio ou qualquer domínio
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-# Escudos personalizados dos playoffs da Série B
+# Escudos personalizados (incluindo variações de nome da ESPN)
 ESCUDOS_PLAYOFFS = {
     "Criciúma": "https://i.postimg.cc/C54L8J4V/crr-removebg-preview-(1).png",
     "Fortaleza": "https://i.postimg.cc/C1F21Ndn/3vwixmwbhl6f1-removebg-preview.png",
     "Atlético-GO": "https://i.postimg.cc/XJJgmDr3/5b2f9501cda0080a87f039a9340f5d16.png",
+    "Atlético Goianiense": "https://i.postimg.cc/XJJgmDr3/5b2f9501cda0080a87f039a9340f5d16.png",
     "Vila Nova": "https://i.postimg.cc/2ynT7L1s/brasao-oficial-vila-nova-futebol-clube-logo-png-seeklogo-22129.png"
 }
 
@@ -34,7 +45,7 @@ JOGOS_PLAYOFFS_FALLBACK = [
             "escudo": ESCUDOS_PLAYOFFS["Fortaleza"],
             "placar": None
         },
-        "data": "2026-11-22T19:00:00Z",  # 16h BRT
+        "data": "2026-11-22T19:00:00Z",  # 16h00 BRT
         "local": "Heriberto Hülse, Criciúma (SC)"
     },
     {
@@ -74,7 +85,7 @@ JOGOS_PLAYOFFS_FALLBACK = [
             "escudo": ESCUDOS_PLAYOFFS["Atlético-GO"],
             "placar": None
         },
-        "data": "2026-11-27T23:00:00Z",  # 20h BRT
+        "data": "2026-11-27T23:00:00Z",  # 20h00 BRT
         "local": "Onésio Brasileiro Alvarenga, Goiânia (GO)"
     },
     {
@@ -94,10 +105,15 @@ JOGOS_PLAYOFFS_FALLBACK = [
             "escudo": ESCUDOS_PLAYOFFS["Criciúma"],
             "placar": None
         },
-        "data": "2026-11-28T23:00:00Z",  # 20h BRT
+        "data": "2026-11-28T23:00:00Z",  # 20h00 BRT
         "local": "Arena Castelão, Fortaleza (CE)"
     }
 ]
+
+def normalizar_nome(nome: str) -> str:
+    if nome == "Atlético Goianiense":
+        return "Atlético-GO"
+    return nome
 
 @app.get("/jogos")
 def obter_jogos():
@@ -107,7 +123,7 @@ def obter_jogos():
         resposta.raise_for_status()
         dados = resposta.json()
 
-        jogos_formatados = []
+        jogos_espn = []
         events = dados.get("events", [])
 
         for event in events:
@@ -133,14 +149,13 @@ def obter_jogos():
             else:
                 status_real = description or "Aguardando"
 
-            nome_mandante = mandante.get("team", {}).get("displayName")
-            nome_visitante = visitante.get("team", {}).get("displayName")
+            nome_mandante = normalizar_nome(mandante.get("team", {}).get("displayName", ""))
+            nome_visitante = normalizar_nome(visitante.get("team", {}).get("displayName", ""))
 
-            # Substitui pelo escudo personalizado se for um dos times dos playoffs
             logo_mandante = ESCUDOS_PLAYOFFS.get(nome_mandante, mandante.get("team", {}).get("logo"))
             logo_visitante = ESCUDOS_PLAYOFFS.get(nome_visitante, visitante.get("team", {}).get("logo"))
 
-            jogos_formatados.append({
+            jogos_espn.append({
                 "status": status_real,
                 "status_original": description,
                 "estado": state,
@@ -161,12 +176,27 @@ def obter_jogos():
                 "local": competition.get("venue", {}).get("fullName")
             })
 
-        # Se a ESPN estiver vazia (fim de campeonato), usa o fallback dos playoffs garantido
-        if not jogos_formatados:
-            return {"rodada_atual": JOGOS_PLAYOFFS_FALLBACK}
+        # Verifica se a ESPN já está mostrando os jogos futuros/ao vivo dos playoffs (após 18/11/2026)
+        jogos_playoffs_ao_vivo_ou_novos = [
+            j for j in jogos_espn if j.get("data", "") >= "2026-11-18"
+        ]
 
-        return {"rodada_atual": jogos_formatados}
+        if jogos_playoffs_ao_vivo_ou_novos:
+            # Mescla os jogos ativos da ESPN com os jogos restantes do fallback (ex: jogos de volta)
+            confrontos_espn = {
+                (j["mandante"]["nome"], j["visitante"]["nome"])
+                for j in jogos_playoffs_ao_vivo_ou_novos
+            }
+            jogos_restantes = [
+                fb for fb in JOGOS_PLAYOFFS_FALLBACK
+                if (fb["mandante"]["nome"], fb["visitante"]["nome"]) not in confrontos_espn
+            ]
+            # Mantém o histórico encerrado da ESPN + os jogos dos playoffs atualizados
+            historico_anterior = [j for j in jogos_espn if j.get("data", "") < "2026-11-18"]
+            return {"rodada_atual": historico_anterior + jogos_playoffs_ao_vivo_ou_novos + jogos_restantes}
 
-    except Exception as e:
-        # Em caso de falha na requisição externa, entrega o fallback para o painel não quebrar
+        # Enquanto a ESPN só tiver a 38ª rodada encerrada, entrega o histórico + os 4 jogos agendados dos playoffs
+        return {"rodada_atual": jogos_espn + JOGOS_PLAYOFFS_FALLBACK}
+
+    except Exception:
         return {"rodada_atual": JOGOS_PLAYOFFS_FALLBACK}
