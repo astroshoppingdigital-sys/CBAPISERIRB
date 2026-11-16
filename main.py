@@ -17,13 +17,13 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
-# Escudos personalizados (incluindo variações de nome da ESPN)
+# Escudos personalizados atualizados (incluindo variações de nome da ESPN)
 ESCUDOS_PLAYOFFS = {
-    "Criciúma": "https://i.postimg.cc/C54L8J4V/crr-removebg-preview-(1).png",
+    "Criciúma": "https://i.postimg.cc/X7SV8rHH/images.png",
     "Fortaleza": "https://i.postimg.cc/C1F21Ndn/3vwixmwbhl6f1-removebg-preview.png",
-    "Atlético-GO": "https://i.postimg.cc/XJJgmDr3/5b2f9501cda0080a87f039a9340f5d16.png",
-    "Atlético Goianiense": "https://i.postimg.cc/XJJgmDr3/5b2f9501cda0080a87f039a9340f5d16.png",
-    "Vila Nova": "https://i.postimg.cc/2ynT7L1s/brasao-oficial-vila-nova-futebol-clube-logo-png-seeklogo-22129.png"
+    "Atlético-GO": "https://i.postimg.cc/d0SH9TBN/escudo-fundo-vermelho-(1).png",
+    "Atlético Goianiense": "https://i.postimg.cc/d0SH9TBN/escudo-fundo-vermelho-(1).png",
+    "Vila Nova": "https://i.postimg.cc/2Sr4L84j/db07ea497d7012235c90871e9450759e.png"
 }
 
 # Fallback estruturado com os jogos de ida e volta dos Playoffs da Série B 2026
@@ -182,7 +182,6 @@ def obter_jogos():
         ]
 
         if jogos_playoffs_ao_vivo_ou_novos:
-            # Mescla os jogos ativos da ESPN com os jogos restantes do fallback (ex: jogos de volta)
             confrontos_espn = {
                 (j["mandante"]["nome"], j["visitante"]["nome"])
                 for j in jogos_playoffs_ao_vivo_ou_novos
@@ -191,7 +190,6 @@ def obter_jogos():
                 fb for fb in JOGOS_PLAYOFFS_FALLBACK
                 if (fb["mandante"]["nome"], fb["visitante"]["nome"]) not in confrontos_espn
             ]
-            # Mantém o histórico encerrado da ESPN + os jogos dos playoffs atualizados
             historico_anterior = [j for j in jogos_espn if j.get("data", "") < "2026-11-18"]
             return {"rodada_atual": historico_anterior + jogos_playoffs_ao_vivo_ou_novos + jogos_restantes}
 
